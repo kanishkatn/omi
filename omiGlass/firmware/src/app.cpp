@@ -852,79 +852,77 @@ void loop_app() {
     firstBatteryUpdate = false;
   }
 
-  if (false) {
-    // Check if it's time to capture a photo
-    if (isCapturingPhotos && !photoDataUploading && connected) {
-      if ((captureInterval == 0) || (now - lastCaptureTime >= (unsigned long)captureInterval)) {
-        if (captureInterval == 0) {
-          // Single shot if interval=0
-          isCapturingPhotos = false;
-        }
-        Serial.println("Interval reached. Capturing photo...");
-        if (take_photo()) {
-          Serial.println("Photo capture successful. Starting upload...");
-          photoDataUploading = true;
-          sent_photo_bytes = 0;
-          sent_photo_frames = 0;
-          lastCaptureTime = now;
-        }
+  // Check if it's time to capture a photo
+  if (isCapturingPhotos && !photoDataUploading && connected) {
+    if ((captureInterval == 0) || (now - lastCaptureTime >= (unsigned long)captureInterval)) {
+      if (captureInterval == 0) {
+        // Single shot if interval=0
+        isCapturingPhotos = false;
+      }
+      Serial.println("Interval reached. Capturing photo...");
+      if (take_photo()) {
+        Serial.println("Photo capture successful. Starting upload...");
+        photoDataUploading = true;
+        sent_photo_bytes = 0;
+        sent_photo_frames = 0;
+        lastCaptureTime = now;
       }
     }
-  
-    // If uploading, send chunks over BLE
-    if (photoDataUploading && fb) {
-      size_t remaining = fb->len - sent_photo_bytes;
-      if (remaining > 0) {
-        // Prepare chunk
-        s_compressed_frame_2[0] = (uint8_t)(sent_photo_frames & 0xFF);
-        s_compressed_frame_2[1] = (uint8_t)((sent_photo_frames >> 8) & 0xFF);
-        size_t bytes_to_copy = (remaining > 200) ? 200 : remaining;
-        memcpy(&s_compressed_frame_2[2], &fb->buf[sent_photo_bytes], bytes_to_copy);
-  
-        photoDataCharacteristic->setValue(s_compressed_frame_2, bytes_to_copy + 2);
-        photoDataCharacteristic->notify();
-  
-        sent_photo_bytes += bytes_to_copy;
-        sent_photo_frames++;
-  
-        Serial.print("Uploading chunk ");
-        Serial.print(sent_photo_frames);
-        Serial.print(" (");
-        Serial.print(bytes_to_copy);
-        Serial.print(" bytes), ");
-        Serial.print(remaining - bytes_to_copy);
-        Serial.println(" bytes remaining.");
-        
-        lastActivity = now; // Register activity
-      }
-      else {
-        // End of photo marker
-        s_compressed_frame_2[0] = 0xFF;
-        s_compressed_frame_2[1] = 0xFF;
-        photoDataCharacteristic->setValue(s_compressed_frame_2, 2);
-        photoDataCharacteristic->notify();
-        Serial.println("Photo upload complete.");
-  
-        photoDataUploading = false;
-        // Free camera buffer
-        esp_camera_fb_return(fb);
-        fb = nullptr;
-        Serial.println("Camera frame buffer freed.");
-      }
+  }
+
+  // If uploading, send chunks over BLE
+  if (photoDataUploading && fb) {
+    size_t remaining = fb->len - sent_photo_bytes;
+    if (remaining > 0) {
+      // Prepare chunk
+      s_compressed_frame_2[0] = (uint8_t)(sent_photo_frames & 0xFF);
+      s_compressed_frame_2[1] = (uint8_t)((sent_photo_frames >> 8) & 0xFF);
+      size_t bytes_to_copy = (remaining > 200) ? 200 : remaining;
+      memcpy(&s_compressed_frame_2[2], &fb->buf[sent_photo_bytes], bytes_to_copy);
+
+      photoDataCharacteristic->setValue(s_compressed_frame_2, bytes_to_copy + 2);
+      photoDataCharacteristic->notify();
+
+      sent_photo_bytes += bytes_to_copy;
+      sent_photo_frames++;
+
+      Serial.print("Uploading chunk ");
+      Serial.print(sent_photo_frames);
+      Serial.print(" (");
+      Serial.print(bytes_to_copy);
+      Serial.print(" bytes), ");
+      Serial.print(remaining - bytes_to_copy);
+      Serial.println(" bytes remaining.");
+      
+      lastActivity = now; // Register activity
     }
+    else {
+      // End of photo marker
+      s_compressed_frame_2[0] = 0xFF;
+      s_compressed_frame_2[1] = 0xFF;
+      photoDataCharacteristic->setValue(s_compressed_frame_2, 2);
+      photoDataCharacteristic->notify();
+      Serial.println("Photo upload complete.");
+
+      photoDataUploading = false;
+      // Free camera buffer
+      esp_camera_fb_return(fb);
+      fb = nullptr;
+      Serial.println("Camera frame buffer freed.");
+    }
+  }
+
+  // Light sleep optimization - major power savings while maintaining BLE
+  if (!photoDataUploading) {
+    enableLightSleep();
+  }
   
-    // Light sleep optimization - major power savings while maintaining BLE
-    if (!photoDataUploading) {
-      enableLightSleep();
-    }
-    
-    // Adaptive delays for power saving (gentle optimization)
-    if (photoDataUploading) {
-      delay(20);  // Fast during upload
-    } else if (powerSaveMode) {
-      delay(50);  // Reduced delay with light sleep
-    } else {
-      delay(50);  // Reduced delay with light sleep
-    }
+  // Adaptive delays for power saving (gentle optimization)
+  if (photoDataUploading) {
+    delay(20);  // Fast during upload
+  } else if (powerSaveMode) {
+    delay(50);  // Reduced delay with light sleep
+  } else {
+    delay(50);  // Reduced delay with light sleep
   }
 }
